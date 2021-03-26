@@ -1,136 +1,86 @@
-import sys
-import os
-import argparse
-from datetime import datetime
-
+from torchvision.datasets import CIFAR10
 import numpy as np
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import torchvision.transforms as transforms
 import torch.optim as optim
-from torchvision import datasets, transforms
+import torch.nn as nn
+import torch
+from network import Model
 
+import os
 
-def loadDataBase(path=os.path.join('.', 'mnist_data')):
-    trans = transforms.ToTensor()
-    train_db = datasets.MNIST(path,
-                              train=True,
-                              download=True,
-                              transform=trans)
-    test_db = datasets.MNIST(path,
-                             train=False,
-                             download=True,
-                             transform=trans)
-    return train_db, test_db
+# Data set setting
 
+max_val_acc = 0
+transform_train = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))])
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))])
 
-def train(net, device, train_loader, optimizer):
-    net.train()  # set the network in training mode
+model_num = int(os.environ.get('model', 1))
+num_epochs = int(os.environ.get('epoch', 3))
+batch_size = int(os.environ.get('batch', 128))
+learning_rate = float(os.environ.get('lr', 1e-2))
+weight = float(os.environ.get('weight', 4e-5))
 
-    train_loss = 0
-    for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)  # convert data type
-        optimizer.zero_grad()  # clears gradients
-        output = net(data)  # forwards layers in the network
-        loss = torch.nn.functional.nll_loss(output, target)  # compute loss
+print("\n Hyper parameter: epochs: %d, batch size: %4f, learning rate: %4f, weight decay: %4f".format(
+    num_epochs, batch_size, learning_rate, weight))
+
+trainset = CIFAR10("/home/user", transform=transform_train,
+                   download=True, train=True)
+trainloader = torch.utils.data.DataLoader(
+    trainset, batch_size=batch_size, shuffle=True, num_workers=2)
+testset = CIFAR10("/home/user", transform=transform_test,
+                  download=True, train=False)
+testloader = torch.utils.data.DataLoader(
+    testset, batch_size=64, shuffle=False, num_workers=2)
+
+model = Model()
+model.cuda()
+criterion = nn.CrossEntropyLoss()
+
+i = 0
+correct, total = 0, 0
+train_loss, counter = 0, 0
+
+for epoch in range(num_epochs):
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate,
+                          weight_decay=weight, momentum=0.9)
+
+    # iteration over all train data
+    for data in trainloader:
+        # shift to train mode
+        model.train()
+
+        # get the inputs
+        inputs, labels = data
+        inputs = inputs.cuda()
+        labels = labels.cuda()
+
+        # forward + backward + optimize
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # count acc,loss on trainset
+        _, predicted = torch.max(outputs.data, 1)
+
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
         train_loss += loss.item()
-        loss.backward()  # compute gradient
-        optimizer.step()  # gradient back-propagation
+        counter += 1
 
-    train_loss /= len(train_loader)
-    return train_loss
+        acc = correct / total
+        train_loss /= counter
 
+        if i % 100 == 0:
+            print('iteration: %d, epoch: %d,  loss: %.4f, acc: %.4f'
+                  % (i, epoch, train_loss, acc))
+        i += 1
 
-def test(net, device, test_loader):
-    net.eval()  # sets the network in test mode
-    test_loss, true_positives = 0, 0
-
-    with torch.no_grad():  # do not compute backward (gradients)
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = net(data)
-            test_loss += torch.nn.functional.nll_loss(
-                output, target, reduction='sum').item()
-            pred = output.argmax(dim=1, keepdim=True)
-            true_positives += pred.eq(target.view_as(pred)).sum().item()
-
-    test_loss /= len(test_loader.dataset)
-    accuracy = 100. * true_positives / len(test_loader.dataset)
-    return test_loss, accuracy
-
-
-class SimpleNN(nn.Module):
-    def __init__(self):
-        super(SimpleNN, self).__init__()
-        self.conv1 = torch.nn.Conv2d(1, 20, 5, stride=1, padding=0)
-        self.conv2 = torch.nn.Conv2d(20, 50, 5, stride=1, padding=0)
-        self.conv3 = torch.nn.Conv2d(50, 500, 4, stride=1, padding=0)
-        self.fc1 = torch.nn.Conv2d(500, 10, 1, stride=1, padding=0)
-
-    def forward(self, img):
-        x = self.conv1(img)
-        x = torch.nn.functional.relu(x)
-        x = torch.nn.functional.max_pool2d(x, 2, 2)
-
-        x = self.conv2(x)
-        x = torch.nn.functional.relu(x)
-        x = torch.nn.functional.max_pool2d(x, 2, 2)
-
-        x = self.conv3(x)
-        x = torch.nn.functional.relu(x)
-
-        x = self.fc1(x)
-
-        return torch.nn.functional.log_softmax(x.squeeze(), dim=1)
-
-
-def main():
-    # Set arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--batch', type=int, default=64,
-                        help='input batch size for training (default: 64)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                        help='number of epochs to train (default: 10)')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
-                        help='learning rate (default: 0.01)')
-    args = parser.parse_args()
-
-    batch = args.batch
-    epochs = args.epochs
-    lr = args.lr
-
-    # Set experiment environments
-    torch.manual_seed(3)  # random seed for reproducability
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Load MNIST database
-    print('# TTOCHI Load dataset')
-    train_db, test_db = loadDataBase()
-    train_loader = torch.utils.data.DataLoader(train_db,
-                                               batch_size=batch,
-                                               shuffle=True)
-    test_loader = torch.utils.data.DataLoader(test_db,
-                                              batch_size=batch,
-                                              shuffle=True)
-
-    # Initialize the network architecture and training optimizer
-    print('# TTOCHI Init network')
-    net = SimpleNN().to(device)
-    optimizer = optim.SGD(net.parameters(), lr=lr)
-
-    # Start training and validation
-    print('# TTOCHI Start training')
-    for epoch in range(1, epochs + 1):
-        train_loss = train(net, device, train_loader, optimizer)  # train
-        test_loss, accuracy = test(net, device, test_loader)  # validate
-        print(' =TTOCHI= Epoch %02d ' % (epoch))
-        print('  Train/Test Loss: %.6f /  %.6f' % (train_loss, test_loss))
-        print('  Test Accuracy: %.2f' % (accuracy))
-
-    # Save trained weights and the model
-    torch.save(net.state_dict(), "mnist_cnn.pt")
-
-
-if __name__ == "__main__":
-    main()
+    torch.save(model.state_dict(), 'model.pth')
