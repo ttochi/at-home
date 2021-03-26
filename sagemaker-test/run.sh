@@ -1,3 +1,4 @@
 #!/bin/bash
 
-python3 train.py
+pwd
+python3 at-home/sagemaker-test/train.py
