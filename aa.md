@@ -1,3 +1,4 @@
+```js
 function listPickupMobility(admin, callback) {
   // check admin authentication
   if(!admin.validate)
@@ -9,3 +10,4 @@ function listPickupMobility(admin, callback) {
 
 listPickupMobility(adminA, algorithmA);
 listPickupMobility(adminB, algorithmB);
+```
