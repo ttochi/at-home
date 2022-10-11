@@ -373,3 +373,25 @@ B 프로세스는 read만 가능하다....
 access 정보를 추가해서 가상 메모리 공간을 공유하기도 하고, 접근권한도 관리할 수 있다.
 
 ### two-level page table
+
+page table이 너무 클 때, 멀티 레벨을 사용하게 되면 메모리를 덜 쓸 수 있다
+
+### cache access time 줄이기
+
+cpu에서 cache에 접근할 때, 중간에 address translation이 들어감
+
+스텝이 늘어나면 시간이 드는데 이 시간을 아껴보자!
+
+virtual ( page, offset ) --> physical ( frame, offset )
+
+우리는 cache에서 주로 n-way set을 쓰기 때문에 offset만 가지고도 cache index를 찾을 수 있다!
+
+기존에 순차적으로 하던 lookup을 병렬적으로 진행하자
+- TLB lookup --> cache lookup --> hit/miss
+- TLB lookup + cache lookup --> hit/miss
+
+
+VIPT (virtually indexed physically tagged)
+
+> 단, cache index size가 offset의 비트수를 넘어가는 경우에는 적용할 수 없음!
+> offset을 넘어가면 결국 physical 주소를 알아야 인덱싱이 가능하기 때문이지
